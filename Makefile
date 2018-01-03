@@ -12,7 +12,7 @@ ASSETS_DIR = assets/
 
 include $(BITBOX)/kernel/bitbox.mk
 
-assets/art.c: *.png
+assets/art.c: *.png 
 	python rle_encode2.py $^ > $@ 
 	
 sounds.c: sounds/*.wav mk_sounds.py
