@@ -6,12 +6,14 @@
 
 /*Generics Defines*/
 
-#define CLEAR_COLOR 255
+#define CLEAR_COLOR 31
 #define GROUND_Y 400
 #define SCREEN_W 640
 #define SCREEN_H 480
 #define SCR_INIT_X 0
 #define GRAVITY 4
+#define MAX_WALLS 2
+#define TIME_SCR_SVR 1800 // 60 TICKS * 30 SEG
 
 #define SCORE_POSX 296
 #define SCORE_POSY 10
@@ -32,7 +34,6 @@
 /*Defines of starring*/
 #define NINJA_STARTX 300
 #define NINJA_STARTY 50
-
 
 #define SMP(x) extern const int8_t sample_##x##_data[]; extern const int sample_##x##_len;extern const int sample_##x##_rate;
 #define PLAY(x) play_sample(sample_##x##_data,sample_##x##_len, 256*sample_##x##_rate/BITBOX_SAMPLERATE,-1, 50,50 );
@@ -72,6 +73,9 @@ int btnJmpPressed = 0;
 int ninjaGrounded = 0;
 float friction = 0.8;
 int tempidxBlit = 0;
+int countJump = 0;
+int saveScreen = 0;
+int clearColor = CLEAR_COLOR;
 
 //uint16_t lineToDraw[640];
 
@@ -111,6 +115,15 @@ extern Sprite ninjaWalk1_sprite;
 extern Sprite ninjaWalk2_sprite;
 extern Sprite ninjaWalk3_sprite;
 extern Sprite ninjaWalk4_sprite;
+
+extern int ninjaJump1_w;
+extern int ninjaJump1_h;
+extern Sprite ninjaJump1_sprite;
+extern Sprite ninjaJump2_sprite;
+extern Sprite ninjaJump3_sprite;
+extern Sprite ninjaJump4_sprite;
+extern Sprite ninjaJump5_sprite;
+
 //extern Sprite bird_3_sprite;
 
 
@@ -144,6 +157,9 @@ extern Sprite block_1_sprite;
 extern int floor_1_h; 
 extern int floor_1_w;
 extern Sprite floor_1_sprite;
+extern int wall_1_h;
+extern int wall_1_w;
+extern Sprite wall_1_sprite;
 
 /*extern int tube_up_med_h;
 extern int tube_up_med_w;
@@ -193,6 +209,7 @@ SMP(coin);
 ACTOR ninja;
 ACTOR block;
 ACTOR floor;
+ACTOR walls[MAX_WALLS];
 //ACTOR tube_u[MAX_PIPES];
 //ACTOR tube_u_shad[MAX_PIPES];
 //ACTOR tube_d[MAX_PIPES];
@@ -207,22 +224,38 @@ void initialize_Actors()
    ninja.h = ninjaIdle1_h;
    ninja.w = ninjaIdle1_w;
    ninja.flip = 0;
-   ninja.idxBlit = 0;  
+   ninja.idxBlit = 0;     
    
-   block.x = 300;
-   block.y = 368;
-   block.w = block_1_w;
-   block.h = block_1_h;
-   block.idxBlit = 0;
-   
-   floor.x = 160;
-   floor.y = 400;
-   floor.w = floor_1_w;
-   floor.h = floor_1_h;
-   floor.idxBlit = 0;
    //num_w = n_zero_w;
    //num_h = n_zero_h;
    
+}
+
+void initialize_Level(){
+    block.x = 300;
+    block.y = 250;
+    block.w = block_1_w;
+    block.h = block_1_h;
+    block.idxBlit = 0;
+   
+    floor.x = 160;
+    floor.y = 448;
+    floor.w = floor_1_w;
+    floor.h = floor_1_h;
+    floor.idxBlit = 0;
+    
+    walls[0].x = 128;
+    walls[0].y = 32;
+    walls[0].w = wall_1_w;
+    walls[0].h = wall_1_h;   
+    walls[0].idxBlit = 0;
+    
+    walls[1].x = 480;
+    walls[1].y = 32;
+    walls[1].w = wall_1_w;
+    walls[1].h = wall_1_h;   
+    walls[1].idxBlit = 0;
+    
 }
 
 // standard AABB collision check
@@ -266,9 +299,9 @@ void check_NinjaCollide(){
    } */     
 }
 
-void clear_Line(){
+void clear_Line(int color){
     //for(int idx = 0; idx < 640; idx++) lineToDraw[idx] = CLEAR_COLOR;
-    for(int idx = 0; idx < 640; idx++) draw_buffer[idx] = CLEAR_COLOR;
+    for(int idx = 0; idx < 640; idx++) draw_buffer[idx] = color;
 }
 
 
@@ -374,6 +407,7 @@ void count_Pipes(){
 
 void game_init() {
     initialize_Actors();
+    initialize_Level();
     back_2_index = 0; 
     
    /* for(int idx = 0; idx < MAX_PIPES; idx++) 
@@ -445,16 +479,89 @@ void calculateNextPos(){
     timeStep = 0;
 }    
 
+
+void move_Ninja(){
+    if(ninjaLeft) {
+        if(collideRight) 
+        {
+            countJump = 0;
+            collideRight = 0;
+        }    
+        ninja.x -= 4;
+        if(collide(&ninja,&block)) ninja.x += 4;
+        else if(collide(&ninja,&walls[0])) {
+            ninja.x += 4;
+            collideLeft = 1;
+            countJump = 30;            
+        }
+    }else if(ninjaRight) {
+        if(collideLeft) 
+        {
+            countJump = 0;
+            collideLeft = 0;
+        }    
+        ninja.x += 4;
+        if(collide(&ninja,&block)) ninja.x -= 4;
+        else if(collide(&ninja,&walls[1])) {
+            ninja.x -= 4;
+            collideRight = 1;
+            countJump = 30;
+            //countJump = 0;
+        }
+    }
+    if(ninjaJump && countJump < 30) {        
+        countJump++;
+        ninja.y -= 6; 
+        if(collide(&ninja,&block)) countJump = 30;       
+    }
+    else {
+        ninja.y +=8;
+        //countJump = 0;
+        if(collide(&ninja,&block)) {
+            ninja.y -= 8;
+            //countJump = 20;
+            if(!btnJmpPressed) countJump = 0;
+        }
+        else if(collide(&ninja,&floor)){
+             ninja.y -= 8;
+             //countJump = 20;
+             if(!btnJmpPressed) countJump = 0;
+         }
+    }   
+     
+    if((ninjaLeft || ninjaRight) && !ninjaJump)
+    {
+        ninja.state = 1;
+        ninja.w = ninjaWalk1_w;
+        ninja.h = ninjaWalk1_h;
+        saveScreen = 0;
+        clearColor = CLEAR_COLOR;
+    }else if(ninjaJump)
+    {
+        ninja.state = 2;
+        ninja.w = ninjaJump1_w;
+        ninja.h = ninjaJump1_h;
+        saveScreen = 0;
+        clearColor = CLEAR_COLOR;
+    }else {
+        ninja.state = 0;
+        ninja.w = ninjaIdle1_w;
+        ninja.h = ninjaIdle1_h;
+    }
+    
+}
+
 void game_frame()
 {
     //int prevPosY = 0;   
     //clear_Line();    
-    if (GAMEPAD_PRESSED(0,up)&& btnJmpPressed == 0){
+    if (GAMEPAD_PRESSED(0,A) && btnJmpPressed == 0){
         ninjaJump = 1;
         btnJmpPressed = 1;        
-    }else if(!GAMEPAD_PRESSED(0,up) && btnJmpPressed == 1){
-        ninjaJump = 0;
+    }else if(!GAMEPAD_PRESSED(0,A) && btnJmpPressed == 1){
+        ninjaJump = 0;        
         btnJmpPressed = 0;           
+        //countJump = 0;
     }
     if (GAMEPAD_PRESSED(0,down)){
          
@@ -481,31 +588,44 @@ void game_frame()
         }
         //else if(game_State == GAME_RUN) game_State = GAME_PAUSED;    
     }  
+    if(saveScreen < TIME_SCR_SVR) saveScreen++;
+    else if(clearColor > 0) clearColor--;
+    move_Ninja();
     
     if(timeStep < 1) timeStep++; //10 = physics calculate 16ms aprox @ 60Hz
     else{        
         //timeStep = 0.8;
-        calculateNextPos();
+        //calculateNextPos();
     }        
     
-    if(framesCount < 8) framesCount++;
-    else {        
-        framesCount = 0;                
-        if(ninja.state == 0)
+    //if(framesCount < 8) framesCount++;
+    //else {        
+       // framesCount = 0;                
+        if(ninja.state == 0 && framesCount > 8)
         {
+            framesCount = 0;                
             if(ninja.actualFrame == 0) ninja.actualFrame = 1;
             else if(ninja.actualFrame == 1) ninja.actualFrame = 0;
             else ninja.actualFrame = 0;
-        }
-        if(ninja.state == 1)
+        }else if(ninja.state == 1 && framesCount > 4)
         {
+            framesCount = 0;                
             if(ninja.actualFrame == 2) ninja.actualFrame = 3;
             else if(ninja.actualFrame == 3) ninja.actualFrame = 4;
             else if(ninja.actualFrame == 4) ninja.actualFrame = 5;
             else if(ninja.actualFrame == 5) ninja.actualFrame = 2;
             else ninja.actualFrame = 2;
-        }
-    }     
+        }else if(ninja.state == 2 && framesCount > 2)
+        {
+            framesCount = 0;                
+            if(ninja.actualFrame == 6) ninja.actualFrame = 7;
+            else if(ninja.actualFrame == 7) ninja.actualFrame = 8;
+            else if(ninja.actualFrame == 8) ninja.actualFrame = 9;
+            else if(ninja.actualFrame == 9) ninja.actualFrame = 10;
+            else if(ninja.actualFrame == 10) ninja.actualFrame = 6;
+            else ninja.actualFrame = 6;
+        }else framesCount++;
+   // }     
     
     if(game_State == GAME_STOP){
         /*for(int idx = 0; idx < MAX_PIPES; idx++) 
@@ -579,7 +699,9 @@ void graph_vsync(void)
     ninja.idxBlit = 0;
     block.idxBlit = 0; 
     floor.idxBlit = 0; 
-    tempidxBlit = 0;     
+    tempidxBlit = 0;  
+    walls[0].idxBlit = 0;
+    walls[1].idxBlit = 0;   
     //score_u_index = 0;
    // score_d_index = 0;
    // score_c_index = 0;
@@ -667,7 +789,7 @@ void update_Score(){
 
 void graph_line()
 {
-    clear_Line();    
+    
     //back_1_index = blit_TT(back_1_sprite,SCR_INIT_X,0,back_1_w, back_1_h,0,back_1_index);    
     
     /*if(game_State == GAME_STOP && delayToRestart < 1){
@@ -726,8 +848,17 @@ void graph_line()
             }          
         }
     }*/
+    if(saveScreen < TIME_SCR_SVR)
+    {
+        clear_Line(clearColor);    
     block.idxBlit = blit_TT(block_1_sprite,block.x,block.y,block.w, block.h, block.flip, block.idxBlit);
     floor.idxBlit = blit_TT(floor_1_sprite,floor.x,floor.y,floor.w,floor.h,floor.flip,floor.idxBlit);
+    for(int idx = 0; idx < MAX_WALLS;idx++)
+    {
+         walls[idx].idxBlit = blit_TT(wall_1_sprite,walls[idx].x,walls[idx].y,
+                              walls[idx].w, walls[idx].h,walls[idx].flip,walls[idx].idxBlit);
+    }
+                                                                
     tempidxBlit = blit_TT(floor_1_sprite,floor.x,0,floor.w,floor.h,floor.flip,tempidxBlit);
     
     switch(ninja.actualFrame){
@@ -749,7 +880,24 @@ void graph_line()
         case 5:
             ninja.idxBlit = blit_TT(ninjaWalk4_sprite,ninja.x, ninja.y, ninja.w, ninja.h,ninja.flip,ninja.idxBlit);
         break; 
-    }    
+        case 6:
+            ninja.idxBlit = blit_TT(ninjaJump1_sprite,ninja.x, ninja.y, ninja.w, ninja.h,ninja.flip,ninja.idxBlit);
+        break; 
+        case 7:
+            ninja.idxBlit = blit_TT(ninjaJump2_sprite,ninja.x, ninja.y, ninja.w, ninja.h,ninja.flip,ninja.idxBlit);
+        break; 
+        case 8:
+            ninja.idxBlit = blit_TT(ninjaJump3_sprite,ninja.x, ninja.y, ninja.w, ninja.h,ninja.flip,ninja.idxBlit);
+        break; 
+        case 9:
+            ninja.idxBlit = blit_TT(ninjaJump4_sprite,ninja.x, ninja.y, ninja.w, ninja.h,ninja.flip,ninja.idxBlit);
+        break; 
+        case 10:
+            ninja.idxBlit = blit_TT(ninjaJump5_sprite,ninja.x, ninja.y, ninja.w, ninja.h,ninja.flip,ninja.idxBlit);
+        break; 
+        
+    } 
+}else clear_Line(clearColor);     
     //update_Score();        
 }
 
